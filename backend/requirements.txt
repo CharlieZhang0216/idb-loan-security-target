@@ -9,7 +9,6 @@ PyJWT==2.8.0
 Werkzeug==3.0.1
 graphene==3.3.0
 graphene-sqlalchemy==3.0.0rc1
-Flask-GraphQL==3.0.0beta1
 marshmallow==3.20.1
 python-dotenv==1.0.0
 gunicorn==21.2.0

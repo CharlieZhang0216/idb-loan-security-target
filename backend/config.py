@@ -16,7 +16,7 @@ class Config:
 
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         'DATABASE_URL',
-        'postgresql://idb_admin:idb_p@ss_2024@localhost:5432/idb_loan'
+        'postgresql://idb_admin:idb_p%40ss_2024@localhost:5432/idb_loan'
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {

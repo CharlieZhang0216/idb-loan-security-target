@@ -32,7 +32,7 @@ services:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
-      - DATABASE_URL=postgresql://idb_admin:idb_p@ss_2024@postgres:5432/idb_loan
+      - DATABASE_URL=postgresql://idb_admin:idb_p%40ss_2024@postgres:5432/idb_loan
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET_KEY=idb-jwt-ultra-secret-key-2024
       - ADMIN_RESET_TOKEN=admin-master-reset-t0ken
