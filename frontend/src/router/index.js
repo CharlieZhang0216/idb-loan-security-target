@@ -29,6 +29,18 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/applications/:id/edit',
+    name: 'ApplicationEdit',
+    component: () => import('../views/shared/ApplicationEdit.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/notifications',
+    name: 'Notifications',
+    component: () => import('../views/shared/NotificationsView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/review',
     name: 'ReviewQueue',
     component: () => import('../views/officer/ReviewQueue.vue'),

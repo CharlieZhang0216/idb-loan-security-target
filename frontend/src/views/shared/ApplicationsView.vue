@@ -80,15 +80,10 @@ const filteredApps = computed(() =>
 
 onMounted(async () => {
   try {
-    const res = await api.get('/applications')
+    // Backend now returns { applications: [...], total, page, per_page } with
+    // borrower already embedded (batch-loaded server-side) — no more N+1.
+    const res = await api.get('/applications', { params: { per_page: 200 } })
     applications.value = res.data.applications || []
-    // Enrich with borrower info
-    for (const app of applications.value) {
-      try {
-        const detail = await api.get(`/applications/${app.id}`)
-        app.borrower = detail.data.application?.borrower
-      } catch(e) {}
-    }
   } catch(e) {} finally { loading.value = false }
 })
 

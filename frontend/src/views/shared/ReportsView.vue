@@ -30,10 +30,27 @@
       <div class="card mt-4">
         <div class="card-header"><h2>Export Options</h2></div>
         <div class="card-body">
-          <div class="flex gap-2 flex-wrap">
-            <a href="/api/reports/export" class="btn btn-primary">Export PDF (All)</a>
-            <button @click="exportApp" class="btn btn-outline">Export PDF (By App ID)</button>
+          <div class="flex gap-2 flex-wrap" style="margin-bottom:12px;">
+            <button @click="exportAll" class="btn btn-primary" :disabled="downloading">
+              {{ downloading ? 'Preparing...' : 'Export PDF (All)' }}
+            </button>
+            <button @click="exportApp" class="btn btn-outline" :disabled="downloading">Export PDF (By App ID)</button>
           </div>
+
+          <details style="margin-top:8px;">
+            <summary class="text-sm text-muted" style="cursor:pointer;">Advanced (Custom Template)</summary>
+            <div style="margin-top:10px;">
+              <div class="form-field">
+                <label class="text-sm">Template snippet (Jinja)</label>
+                <textarea v-model="customTemplate" rows="3" placeholder="e.g. Total: {{ total_applications }}"></textarea>
+              </div>
+              <button @click="exportCustom" class="btn btn-outline btn-sm" :disabled="downloading || !customTemplate">
+                Render &amp; Download
+              </button>
+            </div>
+          </details>
+
+          <p v-if="downloadError" class="text-sm" style="color:#c92a2a;margin-top:10px;">{{ downloadError }}</p>
         </div>
       </div>
     </div>
@@ -46,15 +63,51 @@ import { api } from '../../store/auth'
 import AppSidebar from '../../components/Sidebar.vue'
 
 const reportData = ref(null)
+const downloading = ref(false)
+const downloadError = ref('')
+const customTemplate = ref('')
 
 onMounted(async () => {
-  const res = await api.get('/reports/summary')
-  reportData.value = res.data
+  try {
+    const res = await api.get('/reports/summary')
+    reportData.value = res.data
+  } catch(e) {
+    downloadError.value = e.response?.data?.error || e.message
+  }
 })
+
+async function downloadPdf(params, filename) {
+  downloading.value = true
+  downloadError.value = ''
+  try {
+    const res = await api.get('/reports/export', { params, responseType: 'blob' })
+    const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch(e) {
+    downloadError.value = e.response?.data?.error || e.message || 'Download failed'
+  } finally {
+    downloading.value = false
+  }
+}
+
+function exportAll() {
+  return downloadPdf({}, 'portfolio-report.pdf')
+}
 
 function exportApp() {
   const id = prompt('Enter application ID:')
-  if (id) window.open(`/api/reports/export?application_id=${id}`)
+  if (!id) return
+  return downloadPdf({ application_id: id }, `application-${id}.pdf`)
+}
+
+function exportCustom() {
+  return downloadPdf({ template: customTemplate.value }, 'custom-report.pdf')
 }
 
 function formatStatus(s) { return s ? s.replace(/_/g, ' ') : s }

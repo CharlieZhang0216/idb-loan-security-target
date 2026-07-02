@@ -57,13 +57,14 @@ to discover. Automated scanners are expected to find only ~25‑30% of the issue
 git clone https://github.com/CharlieZhang0216/idb-loan-security-target.git
 cd idb-loan-security-target
 
-# Build and start all services
+# Build and start all services (backend entrypoint waits for Postgres,
+# generates a JWT RSA keypair, and runs the seeder automatically)
 docker-compose up -d --build
 
-# Initialize demo passwords
-docker-compose exec backend python seeds/hash_passwords.py
+# Tail logs while services stabilise (about 20 seconds on a warm machine)
+docker-compose logs -f backend
 
-# Access the application
+# Access the application (Nginx serves the SPA and proxies /api to Flask)
 open http://localhost:8080
 ```
 
@@ -104,30 +105,43 @@ draft → submitted → under_review → risk_assessment → approved → disbur
 
 ## Security Testing
 
-This application contains **20 deliberately placed vulnerabilities** across multiple
-categories:
+This application contains **38 deliberately placed vulnerabilities** across
+multiple categories. VULN-01..20 are the "legacy" set (typical OWASP Top-10
+territory that scanners partially catch); VULN-21..38 are the v2 additions,
+purposely designed to defeat scanners and reward chained, business-aware
+exploitation.
 
-| Category            | Count | Examples                                        |
-|---------------------|-------|-------------------------------------------------|
-| Authentication      | 3     | Weak password reset, open redirect, no rate limit |
-| Authorization       | 3     | Missing role checks, status transition bypass   |
-| Injection           | 3     | Stored XSS, JSON injection, GraphQL introspection |
-| Business Logic      | 4     | Race condition, rounding exploit, workflow bypass |
-| File Handling       | 2     | SVG upload, path traversal                      |
-| Information Exposure| 3     | Verbose errors, employee ID leak, config exposure |
-| Infrastructure      | 2     | Redis exposure, Nginx misconfigurations         |
+| Category               | Count | Examples                                                          |
+|------------------------|-------|-------------------------------------------------------------------|
+| Authentication / JWT   | 7     | HS256 fallback secret, alg=none, kid path traversal, session fixation, timing side-channel |
+| Authorization          | 4     | Missing role checks, X-Effective-Role header impersonation, verb tampering, mass assignment |
+| Injection              | 6     | Stored XSS, GraphQL raw SQL, second-order SQLi, JSON filter injection, SSTI, XXE |
+| Deserialization / RCE  | 3     | Pickle backup import, pickled audit export, SSTI-to-RCE            |
+| Business Logic         | 6     | Race conditions, rounding exploit, workflow bypass, currency amend post-approval, negative amounts |
+| File Handling          | 4     | SVG upload, path traversal, zip-slip, XXE via inspect endpoint     |
+| Information Exposure   | 4     | Verbose errors, employee ID leak, JWKS pubkey leak, backup exfil   |
+| Infrastructure         | 4     | Redis exposure, Nginx misconfig, runtime config injection, verb tampering |
 
-> 📋 A detailed vulnerability catalog is available in `VULNERABILITIES.md`.
+> A detailed catalog with hints, expected exploit paths, difficulty ratings,
+> CVSS scores, and MITRE ATT&CK mappings is available in
+> [`VULNERABILITIES.md`](./VULNERABILITIES.md).
 
 ### Testing Approach
 
-Automated scanners (ZAP, Burp Suite, Nuclei) typically detect **5-7 vulnerabilities**
-— primarily the low-hanging fruit like missing security headers, open Swagger docs,
-and GraphQL introspection.
+Automated scanners (ZAP, Burp Suite Pro, Nuclei, semgrep) typically detect
+**7-10 of the 38 vulnerabilities** — primarily the legacy set: missing
+security headers, GraphQL introspection, SVG upload, verbose errors, open
+Redis, permissive JSON filter, and the JWT `alg=none` primitive when a
+scanner happens to try it.
 
-The remaining **13-15 vulnerabilities** require understanding of the business
-logic, multi-step exploitation, or chaining of weaknesses — making this an ideal
-target for comparing automated tools against skilled human or AI-assisted testing.
+The remaining **~28 vulnerabilities** require understanding of the multi-role
+workflow, careful reading of source, or chaining of independent primitives
+(e.g. mass-assign a `notes` field, then trigger it via GraphQL raw SQL, then
+exfil via the reports PDF export). This makes the target well-suited for
+head-to-head comparisons of manual pentesters, AI agents, and hybrid workflows.
+
+The `VULNERABILITIES.md` file also includes a **grading rubric** so you can
+run scored evaluations.
 
 ## Project Structure
 

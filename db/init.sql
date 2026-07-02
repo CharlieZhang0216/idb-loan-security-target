@@ -17,9 +17,16 @@ CREATE TABLE users (
     phone VARCHAR(32),
     is_active BOOLEAN DEFAULT true,
     last_login TIMESTAMP,
+    notes TEXT,
+    preferences JSONB,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- App-number sequence — used by /api/applications POST to avoid the
+-- count(*)+1 race condition. Starts at 100 so seed rows keep their nice
+-- IDB-2024-00xx numbers.
+CREATE SEQUENCE IF NOT EXISTS loan_app_no_seq START 100;
 
 CREATE TABLE loan_applications (
     id SERIAL PRIMARY KEY,
@@ -117,6 +124,25 @@ CREATE TABLE notifications (
     related_type VARCHAR(64),
     related_id INTEGER,
     created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE backup_snapshots (
+    id SERIAL PRIMARY KEY,
+    imported_by INTEGER REFERENCES users(id),
+    original_filename VARCHAR(256),
+    payload_bytes BYTEA,
+    payload_kind VARCHAR(64),
+    imported_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE api_keys (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    key_prefix VARCHAR(16),
+    key_hash VARCHAR(128),
+    scopes TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    revoked_at TIMESTAMP
 );
 
 -- ========================================

@@ -18,6 +18,12 @@ class User(db.Model):
     phone = db.Column(db.String(32))
     is_active = db.Column(db.Boolean, default=True)
     last_login = db.Column(db.DateTime)
+    # Free-form profile notes surfaced by GraphQL admin_report — VULN-37 sink.
+    notes = db.Column(db.Text)
+    # JSON preferences persisted per user; supports arbitrary keys, so
+    # VULN-26 mass assignment can also stash `role_delegation` payloads that
+    # VULN-24 later consults.
+    preferences = db.Column(db.JSON)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -36,6 +42,8 @@ class User(db.Model):
             'department': self.department,
             'phone': self.phone,
             'is_active': self.is_active,
+            'notes': self.notes,
+            'preferences': self.preferences,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
         if include_sensitive:

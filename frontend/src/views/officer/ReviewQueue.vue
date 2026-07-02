@@ -59,19 +59,11 @@ const supplementTarget = ref(null)
 const supplementDesc = ref('')
 
 onMounted(async () => {
-  const res = await api.get('/applications')
+  const res = await api.get('/applications', { params: { per_page: 200 } })
   const apps = res.data.applications || []
-  // Show submitted + under_review + pending_supplement
-  reviewableApps.value = apps.filter(a =>
-    ['submitted', 'under_review', 'pending_supplement'].includes(a.status)
-  )
-  // Enrich
-  for (const app of reviewableApps.value) {
-    try {
-      const d = await api.get(`/applications/${app.id}`)
-      app.borrower_name = d.data.application?.borrower?.full_name
-    } catch(e) {}
-  }
+  reviewableApps.value = apps
+    .filter(a => ['submitted', 'under_review', 'pending_supplement'].includes(a.status))
+    .map(a => ({ ...a, borrower_name: a.borrower?.full_name }))
 })
 
 function openSupplementDialog(app) {
@@ -89,9 +81,14 @@ async function submitSupplement() {
 }
 
 async function quickReject(app) {
-  if (!confirm(`Reject application ${app.app_no}?`)) return
-  await api.put(`/applications/${app.id}/status`, { status: 'rejected' })
-  window.location.reload()
+  const reason = prompt(`Reject application ${app.app_no}? Enter reason (optional):`, 'Does not meet criteria')
+  if (reason === null) return
+  try {
+    await api.post(`/applications/${app.id}/reject`, { reason })
+    window.location.reload()
+  } catch(e) {
+    alert('Reject failed: ' + (e.response?.data?.error || e.message))
+  }
 }
 
 function formatStatus(s) { return s ? s.replace(/_/g, ' ') : s }

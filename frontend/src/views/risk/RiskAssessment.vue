@@ -26,9 +26,16 @@
       <div v-else class="card"><div class="empty-state"><h3>No applications pending</h3><p>No applications currently require risk assessment.</p></div></div>
 
       <!-- Interest Calculator -->
-      <div class="card mt-4" style="max-width:600px;">
+      <div class="card mt-4" style="max-width:640px;">
         <div class="card-header"><h2>Interest Calculator</h2></div>
         <div class="card-body">
+          <div class="form-field" v-if="riskApps.length">
+            <label>Target Application (optional)</label>
+            <select v-model="calc.appId">
+              <option :value="null">— Standalone (do not tie to an application) —</option>
+              <option v-for="a in riskApps" :key="a.id" :value="a.id">{{ a.app_no }} · {{ a.project_name }}</option>
+            </select>
+          </div>
           <div class="form-row">
             <div class="form-field"><label>Principal Amount</label><input v-model.number="calc.amount" type="number" min="0" /></div>
             <div class="form-field"><label>Rate (%)</label><input v-model.number="calc.rate" type="number" step="0.01" min="0" max="50" /></div>
@@ -41,7 +48,10 @@
             <div class="flex-between"><span class="text-sm text-muted">Total Interest:</span><span class="amount">${{ calcResult.total_interest }}</span></div>
             <div class="flex-between" style="margin-top:8px;font-weight:600;"><span>Total Repayment:</span><span class="amount">${{ calcResult.total_repayment }}</span></div>
           </div>
-          <button @click="doCalculate" class="btn btn-outline mt-4" style="margin-top:12px;">Calculate</button>
+          <div v-if="calcError" class="text-sm" style="color:#c92a2a;margin-top:8px;">{{ calcError }}</div>
+          <button @click="doCalculate" class="btn btn-outline mt-4" style="margin-top:12px;" :disabled="calculating">
+            {{ calculating ? 'Calculating...' : 'Calculate' }}
+          </button>
         </div>
       </div>
     </div>
@@ -49,31 +59,49 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { api } from '../../store/auth'
 import AppSidebar from '../../components/Sidebar.vue'
 
 const riskApps = ref([])
-const calc = ref({ amount: 1000000, rate: 2.0, months: 120 })
+const calc = reactive({ appId: null, amount: 1000000, rate: 2.0, months: 120 })
 const calcResult = ref(null)
+const calcError = ref('')
+const calculating = ref(false)
 
 onMounted(async () => {
-  const res = await api.get('/applications')
-  riskApps.value = (res.data.applications || []).filter(a => a.status === 'risk_assessment')
-  // Enrich
-  for (const app of riskApps.value) {
-    try {
-      const d = await api.get(`/applications/${app.id}`)
-      app.borrower = d.data.application?.borrower
-    } catch(e) {}
-  }
+  try {
+    const res = await api.get('/applications', { params: { per_page: 200 } })
+    riskApps.value = (res.data.applications || []).filter(a => a.status === 'risk_assessment')
+    if (riskApps.value.length) calc.appId = riskApps.value[0].id
+  } catch(e) {}
 })
 
 async function doCalculate() {
+  calculating.value = true
+  calcError.value = ''
   try {
-    const res = await api.post('/applications/1/calculate-interest', calc.value)
+    const targetId = calc.appId || (riskApps.value[0] && riskApps.value[0].id)
+    if (!targetId) {
+      // Fall back to a purely client-side calculation when no app is available.
+      const annual = calc.amount * (calc.rate / 100)
+      const total = annual * (calc.months / 12)
+      calcResult.value = {
+        annual_interest: annual.toFixed(2),
+        total_interest: total.toFixed(2),
+        total_repayment: (calc.amount + total).toFixed(2),
+      }
+      return
+    }
+    const res = await api.post(`/applications/${targetId}/calculate-interest`, {
+      amount: calc.amount, rate: calc.rate, months: calc.months,
+    })
     calcResult.value = res.data
-  } catch(e) {}
+  } catch(e) {
+    calcError.value = e.response?.data?.error || e.message
+  } finally {
+    calculating.value = false
+  }
 }
 
 function formatAmount(v, c) { return v ? '$' + new Intl.NumberFormat('en-US').format(Number(v)) : '-' }

@@ -12,17 +12,17 @@
           </div>
           <div class="flex gap-2" v-if="canEdit">
             <button v-if="app.status === 'draft'" class="btn btn-primary" @click="submitApp">Submit for Review</button>
-            <router-link :to="`/applications/${app.id}`" class="btn btn-outline">Edit</router-link>
+            <router-link :to="`/applications/${app.id}/edit`" class="btn btn-outline">Edit</router-link>
           </div>
           <div class="flex gap-2" v-if="auth.isOfficer && ['submitted','under_review','pending_supplement'].includes(app.status)">
             <button class="btn btn-success" @click="moveToReview">Start Review</button>
+            <button class="btn btn-outline" @click="showRejectPanel = true">Reject</button>
           </div>
           <div class="flex gap-2" v-if="auth.isRisk && app.status === 'risk_assessment'">
             <button class="btn btn-success" @click="showRiskPanel = true">Risk Assessment</button>
           </div>
         </div>
 
-        <!-- Application Details -->
         <div class="detail-grid mb-4">
           <div class="card"><div class="card-body">
             <h3 style="font-size:15px;font-weight:600;margin-bottom:16px;">Basic Information</h3>
@@ -40,16 +40,22 @@
             <div class="detail-item"><div class="detail-label">Currency</div><div class="detail-value">{{ app.currency }}</div></div>
             <div class="detail-item"><div class="detail-label">Term</div><div class="detail-value">{{ app.term_months }} months</div></div>
             <div class="detail-item"><div class="detail-label">Interest Rate</div><div class="detail-value">{{ app.interest_rate ? app.interest_rate + '%' : 'TBD' }}</div></div>
+            <div class="detail-item">
+              <div class="detail-label">Interest Preview</div>
+              <button class="btn btn-outline btn-sm" @click="calcInterest">Calculate</button>
+              <div v-if="calcResult" class="text-sm mt-2">
+                Total interest: {{ formatCurrency(calcResult.total_interest, app.currency) }} ·
+                Repayment: {{ formatCurrency(calcResult.total_repayment, app.currency) }}
+              </div>
+            </div>
           </div></div>
         </div>
 
-        <!-- Description -->
         <div class="card mb-4" v-if="app.project_description">
           <div class="card-header"><h2>Project Description</h2></div>
           <div class="card-body"><p style="font-size:14px;line-height:1.7;white-space:pre-wrap;">{{ app.project_description }}</p></div>
         </div>
 
-        <!-- Timeline -->
         <div class="card mb-4">
           <div class="card-header"><h2>Application Timeline</h2></div>
           <div class="card-body">
@@ -78,7 +84,6 @@
           </div>
         </div>
 
-        <!-- Documents -->
         <div class="card mb-4">
           <div class="card-header">
             <h2>Documents</h2>
@@ -94,7 +99,7 @@
                   <td class="text-sm">{{ formatSize(doc.file_size) }}</td>
                   <td><span class="text-sm">{{ doc.category }}</span></td>
                   <td class="text-sm text-muted">{{ formatDate(doc.created_at) }}</td>
-                  <td><a :href="`/api/documents/${doc.id}`" class="text-sm" style="color:#1864ab;">Download</a></td>
+                  <td><button class="link-btn" @click="downloadDoc(doc)">Download</button></td>
                 </tr>
               </tbody>
             </table>
@@ -102,26 +107,27 @@
           <div v-else class="card-body"><div class="empty-state"><p>No documents uploaded yet.</p></div></div>
         </div>
 
-        <!-- Complementary Information (Supplements) -->
         <div class="card mb-4" v-if="app.supplements?.length">
           <div class="card-header"><h2>Complementary Information Requests</h2></div>
           <div class="card-body">
             <div v-for="s in app.supplements" :key="s.id" style="padding:12px;border:1px solid #dce3ea;border-radius:6px;margin-bottom:8px;">
               <div class="flex-between mb-2">
-                <!-- VULN-06: Stored XSS — description is rendered unsanitized -->
                 <strong class="text-sm">Request from {{ s.requester_name }}:</strong>
                 <span :class="`status-badge ${s.status === 'responded' ? 'status-approved' : 'status-pending_supplement'}`">{{ s.status }}</span>
               </div>
-              <!-- VULN-06: v-html renders unfiltered HTML from supplement description -->
+              <!-- VULN-06 kept: v-html renders unfiltered HTML -->
               <div style="background:#f8f9fc;padding:10px;border-radius:4px;margin-bottom:8px;font-size:13px;line-height:1.5;" v-html="s.description"></div>
               <div v-if="s.response" style="background:#e8f0fe;padding:10px;border-radius:4px;font-size:13px;line-height:1.5;">
-                <strong>Response:</strong> {{ s.response }}
+                <strong>Response:</strong> <span v-html="s.response"></span>
+              </div>
+              <div v-if="s.status === 'pending' && auth.isBorrower && app.borrower_id === auth.user?.id" class="mt-2">
+                <textarea v-model="supplementReplies[s.id]" rows="3" style="width:100%;"></textarea>
+                <button class="btn btn-primary btn-sm mt-2" @click="respondSupplement(s)">Send Response</button>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Reviews -->
         <div class="card mb-4" v-if="app.reviews?.length">
           <div class="card-header"><h2>Review Comments</h2></div>
           <div class="card-body">
@@ -138,8 +144,8 @@
       </template>
 
       <!-- Risk Assessment Modal -->
-      <div v-if="showRiskPanel" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center;">
-        <div style="background:white;border-radius:8px;padding:32px;width:500px;max-width:90vw;">
+      <div v-if="showRiskPanel" class="modal-overlay">
+        <div class="modal-body">
           <h2 style="font-size:18px;margin-bottom:20px;">Risk Assessment — {{ app.app_no }}</h2>
           <div class="form-field">
             <label class="required">Decision</label>
@@ -159,12 +165,48 @@
           </div>
         </div>
       </div>
+
+      <!-- Reject Modal -->
+      <div v-if="showRejectPanel" class="modal-overlay">
+        <div class="modal-body">
+          <h2 style="font-size:18px;margin-bottom:20px;">Reject application</h2>
+          <div class="form-field">
+            <label>Reason</label>
+            <textarea v-model="rejectReason" rows="4"></textarea>
+          </div>
+          <div class="flex gap-2" style="justify-content:flex-end;margin-top:20px;">
+            <button class="btn btn-outline" @click="showRejectPanel = false">Cancel</button>
+            <button class="btn btn-danger" @click="doReject">Reject</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload Modal -->
+      <div v-if="showUpload" class="modal-overlay">
+        <div class="modal-body">
+          <h2 style="font-size:18px;margin-bottom:20px;">Upload document</h2>
+          <input type="file" ref="fileInput" @change="uploadFile" />
+          <div class="form-field">
+            <label>Category</label>
+            <select v-model="uploadCategory">
+              <option value="general">General</option>
+              <option value="feasibility_study">Feasibility Study</option>
+              <option value="financial">Financial</option>
+              <option value="environmental">Environmental</option>
+              <option value="technical">Technical</option>
+            </select>
+          </div>
+          <div class="flex gap-2" style="justify-content:flex-end;margin-top:20px;">
+            <button class="btn btn-outline" @click="showUpload = false">Close</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore, api } from '../../store/auth'
 import AppSidebar from '../../components/Sidebar.vue'
@@ -177,16 +219,23 @@ const app = ref(null)
 const documents = ref([])
 const loading = ref(true)
 const showRiskPanel = ref(false)
+const showRejectPanel = ref(false)
 const showUpload = ref(false)
 const riskDecision = ref('')
 const riskReason = ref('')
 const riskRate = ref('')
+const rejectReason = ref('')
+const uploadCategory = ref('general')
+const fileInput = ref(null)
+const calcResult = ref(null)
+const supplementReplies = reactive({})
 
 const canEdit = computed(() =>
   auth.isBorrower && app.value?.borrower_id === auth.user?.id && app.value?.status === 'draft'
 )
 
-onMounted(async () => {
+async function reload() {
+  loading.value = true
   try {
     const [appRes, docsRes] = await Promise.all([
       api.get(`/applications/${route.params.id}`),
@@ -194,18 +243,21 @@ onMounted(async () => {
     ])
     app.value = appRes.data.application
     documents.value = docsRes.data.documents || []
-  } catch(e) { console.error(e) }
+  } catch (e) { console.error(e) }
   finally { loading.value = false }
-})
+}
+
+onMounted(reload)
 
 async function submitApp() {
-  await api.put(`/applications/${route.params.id}/status`, { status: 'submitted' })
-  window.location.reload()
+  await api.post(`/applications/${route.params.id}/submit`)
+  reload()
 }
 
 async function moveToReview() {
-  await api.post(`/applications/${route.params.id}/approve`)
-  window.location.reload()
+  await api.post(`/applications/${route.params.id}/pick-up`).catch(() => {})
+  await api.post(`/applications/${route.params.id}/approve`).catch(() => {})
+  reload()
 }
 
 async function submitRiskAssessment() {
@@ -214,7 +266,49 @@ async function submitRiskAssessment() {
     reason: riskReason.value,
     interest_rate: riskRate.value || null
   })
-  window.location.reload()
+  showRiskPanel.value = false
+  reload()
+}
+
+async function doReject() {
+  await api.post(`/applications/${route.params.id}/reject`, { reason: rejectReason.value })
+  showRejectPanel.value = false
+  reload()
+}
+
+async function respondSupplement(s) {
+  const text = supplementReplies[s.id] || ''
+  await api.post(`/applications/${route.params.id}/supplements/${s.id}/respond`, { response: text })
+  reload()
+}
+
+async function calcInterest() {
+  const res = await api.post(`/applications/${route.params.id}/calculate-interest`, {})
+  calcResult.value = res.data
+}
+
+async function downloadDoc(doc) {
+  // Fixed: authenticated blob download so JWT interceptor is respected.
+  const res = await api.get(`/documents/${doc.id}`, { responseType: 'blob' })
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = doc.original_name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function uploadFile(e) {
+  const f = e.target.files?.[0]
+  if (!f) return
+  const form = new FormData()
+  form.append('file', f)
+  form.append('category', uploadCategory.value)
+  await api.post(`/documents/upload/${route.params.id}`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  showUpload.value = false
+  reload()
 }
 
 function formatStatus(s) { return s ? s.replace(/_/g, ' ') : s }
@@ -222,3 +316,10 @@ function formatDate(d) { return d ? new Date(d).toLocaleDateString('en-US', { ye
 function formatCurrency(v, c) { return v ? new Intl.NumberFormat('en-US',{minimumFractionDigits:0}).format(Number(v)) + ' ' + (c||'USD') : '-' }
 function formatSize(b) { if (!b) return '-'; return b < 1024 ? b+'B' : b < 1048576 ? (b/1024).toFixed(1)+'KB' : (b/1048576).toFixed(1)+'MB' }
 </script>
+
+<style scoped>
+.modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center; }
+.modal-body { background:white;border-radius:8px;padding:32px;width:500px;max-width:90vw; }
+.link-btn { background:none;border:none;color:#1864ab;cursor:pointer;padding:0;font-size:13px; }
+.btn-danger { background:#d64545;color:#fff;border:none;padding:8px 14px;border-radius:4px;cursor:pointer; }
+</style>
